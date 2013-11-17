@@ -36,5 +36,5 @@ public class ContentPanel extends JPanel
 		tabbed.addTab("Log", scroll);
 		add(tabbed);
 	}
-
+	
 }

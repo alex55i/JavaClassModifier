@@ -49,8 +49,10 @@ import javassist.ClassPool;
 import javassist.CtClass;
 import javassist.NotFoundException;
 import javassist.bytecode.AnnotationsAttribute;
-import javassist.bytecode.AttributeInfo;
+import javassist.bytecode.ClassFile;
 import javassist.bytecode.ConstPool;
+import javassist.bytecode.FieldInfo;
+import javassist.bytecode.MethodInfo;
 import javassist.bytecode.ParameterAnnotationsAttribute;
 import javassist.bytecode.annotation.Annotation;
 import javassist.bytecode.annotation.ArrayMemberValue;
@@ -561,7 +563,32 @@ public class UnitModifier
 		return (x < y) ? -1 : ((x == y) ? 0 : 1);
 	}
 
-	public AttributeInfo makeParameterAnnotations(ConstPool constpool, BodyDeclaration d) throws NotFoundException
+	public void addAnnotationAttributes(MethodInfo info, ConstPool constpool, BodyDeclaration d) throws NotFoundException
+	{
+		AnnotationsAttribute annsAttr = makeAnnotationAttribute(constpool, d);
+		if (annsAttr != null)
+			info.addAttribute(annsAttr);
+
+		ParameterAnnotationsAttribute paramAnnsAttr = makeParameterAnnotationsAttribute(constpool, d);
+		if (paramAnnsAttr != null)
+			info.addAttribute(paramAnnsAttr);
+	}
+
+	public void addAnnotationAttributes(FieldInfo info, ConstPool constpool, BodyDeclaration d) throws NotFoundException
+	{
+		AnnotationsAttribute annsAttr = makeAnnotationAttribute(constpool, d);
+		if (annsAttr != null)
+			info.addAttribute(annsAttr);
+	}
+	
+	public void addAnnotationAttributes(ClassFile classFile, ConstPool constpool, BodyDeclaration d) throws NotFoundException
+	{
+		AnnotationsAttribute annsAttr = makeAnnotationAttribute(constpool, d);
+		if (annsAttr != null)
+			classFile.addAttribute(annsAttr);
+	}
+
+	private ParameterAnnotationsAttribute makeParameterAnnotationsAttribute(ConstPool constpool, BodyDeclaration d) throws NotFoundException
 	{
 		List<Parameter> mdParams = null;
 		if (d instanceof MethodDeclaration)
@@ -572,11 +599,13 @@ public class UnitModifier
 		{
 			mdParams = ((ConstructorDeclaration) d).getParameters();
 		}
-		ParameterAnnotationsAttribute attr = new ParameterAnnotationsAttribute(constpool, ParameterAnnotationsAttribute.visibleTag);
 		if (mdParams != null)
 		{
+			ParameterAnnotationsAttribute attr = new ParameterAnnotationsAttribute(constpool, ParameterAnnotationsAttribute.visibleTag);
 			Annotation[][] javassistAnns = new Annotation[mdParams.size()][];
 			int i = 0;
+			// Counter for params without annotations
+			int annotationless = 0;
 			for (Parameter param : mdParams)
 			{
 				if (param.getAnnotations() != null)
@@ -593,19 +622,25 @@ public class UnitModifier
 				else
 				{
 					javassistAnns[i] = new Annotation[0];
+					annotationless++;
 				}
 				i++;
 			}
+			if (mdParams.size() == annotationless)
+				return null;
+
 			attr.setAnnotations(javassistAnns);
+			return attr;
 		}
-		return attr;
+		return null;
 	}
 
-	public AnnotationsAttribute makeAnnotationAttribute(ConstPool constpool, BodyDeclaration td)
+	private AnnotationsAttribute makeAnnotationAttribute(ConstPool constpool, BodyDeclaration td)
 	{
-		AnnotationsAttribute attr = new AnnotationsAttribute(constpool, AnnotationsAttribute.visibleTag);
+		AnnotationsAttribute attr = null;
 		if (td.getAnnotations() != null)
 		{
+			attr = new AnnotationsAttribute(constpool, AnnotationsAttribute.visibleTag);
 			List<Annotation> annotations = makeAnnotations(constpool, td.getAnnotations());
 			for (Annotation ann : annotations)
 			{

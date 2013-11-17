@@ -1,11 +1,14 @@
 package ru.alex55i.jclassmodifier.util;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.util.zip.ZipException;
 
 import javassist.ClassPath;
+
+import org.apache.commons.io.IOUtils;
 
 public class UrlClassPath implements ClassPath
 {
@@ -30,7 +33,8 @@ public class UrlClassPath implements ClassPath
 			URL url = find(classname);
 			if (url == null)
 				return null;
-			return url.openStream();
+			byte[] data = IOUtils.toByteArray(url);
+			return new ByteArrayInputStream(data);
 		} catch (IOException e)
 		{}
 		return null;
@@ -42,7 +46,7 @@ public class UrlClassPath implements ClassPath
 		try
 		{
 			URL url = new URL(urlContext + name.replace('.', '/') + ".class");
-			url.openStream();
+			url.openStream().close();
 			return url;
 		} catch (IOException e)
 		{}

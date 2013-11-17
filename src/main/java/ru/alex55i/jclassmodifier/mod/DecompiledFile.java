@@ -10,24 +10,33 @@ import japa.parser.ast.visitor.ModifierVisitorAdapter;
 import java.io.File;
 import java.io.IOException;
 
+import ru.alex55i.jclassmodifier.ClassContainer;
+
 import com.google.common.base.Charsets;
 import com.google.common.hash.Hashing;
 import com.google.common.io.Files;
 
-public class JavaClassFile
+public class DecompiledFile
 {
 	private CompilationUnit unit;
+	private ClassContainer container;
 
-	public JavaClassFile(CompilationUnit unit)
+	public DecompiledFile(CompilationUnit unit, ClassContainer container)
 	{
 		this.unit = unit;
+		this.container = container;
 	}
 
 	public CompilationUnit getUnit()
 	{
 		return unit;
 	}
-	
+
+	public ClassContainer getContainer()
+	{
+		return container;
+	}
+
 	public void saveToFile(File file) throws IOException
 	{
 		Files.write(toString(), file, Charsets.UTF_8);

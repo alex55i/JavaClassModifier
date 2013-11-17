@@ -23,17 +23,14 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-import joptsimple.internal.Strings;
-
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang.ArrayUtils;
 
 import ru.alex55i.jclassmodifier.util.Utils;
 
+import com.google.common.base.Joiner;
 import com.google.common.io.Files;
 
-
-public class FernflowerDecompiler extends Decompiler
+public class FernflowerDecompiler implements Decompiler
 {
 
 	public CompilationUnit[] decompileClassFiles(File[] classpath, File[] files) throws IOException, InterruptedException, ParseException
@@ -56,12 +53,12 @@ public class FernflowerDecompiler extends Decompiler
 		}
 		for (File f : classpath)
 		{
-			if (!ArrayUtils.contains(files, f))
-				cmd.add("-e=" + f.getAbsolutePath());
+			//			if (!ArrayUtils.contains(files, f))
+			//				cmd.add("-e=" + f.getAbsolutePath());
 		}
 		cmd.add(tempdir.getAbsolutePath());
 
-		System.out.println("Executing: " + Strings.join(cmd, " "));
+		System.out.println("Executing: " + Joiner.on(' ').join(cmd));
 
 		Process proc = new ProcessBuilder(cmd).start();
 		Utils.printProcessOutput(proc);

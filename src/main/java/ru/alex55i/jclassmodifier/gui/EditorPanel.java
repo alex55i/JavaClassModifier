@@ -1,7 +1,6 @@
 package ru.alex55i.jclassmodifier.gui;
 
-import japa.parser.ParseException;
-import japa.parser.ast.CompilationUnit;
+import it.sauronsoftware.junique.MessageHandler;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -10,22 +9,19 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.io.DataOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.List;
-
-import javassist.ClassPool;
-import javassist.CtClass;
+import java.util.Collection;
+import java.util.Enumeration;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.zip.ZipException;
 
 import javax.swing.BorderFactory;
-import javax.swing.Icon;
+import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
-import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
@@ -33,28 +29,30 @@ import javax.swing.JTabbedPane;
 import javax.swing.JTextPane;
 import javax.swing.JToolBar;
 import javax.swing.JTree;
-import javax.swing.LookAndFeel;
 import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import javax.swing.event.TreeSelectionEvent;
 import javax.swing.event.TreeSelectionListener;
 import javax.swing.tree.DefaultMutableTreeNode;
-import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.DefaultTreeSelectionModel;
+import javax.swing.tree.TreeModel;
 import javax.swing.tree.TreePath;
 
 import org.apache.commons.lang.exception.ExceptionUtils;
 
+import ru.alex55i.jclassmodifier.ClassContainer;
+import ru.alex55i.jclassmodifier.Helper;
+import ru.alex55i.jclassmodifier.classcontainers.FileClassContainer;
 import ru.alex55i.jclassmodifier.decompiler.Decompiler;
 import ru.alex55i.jclassmodifier.decompiler.FernflowerDecompiler;
 import ru.alex55i.jclassmodifier.gui.tab.ClassFileTab;
-import ru.alex55i.jclassmodifier.mod.JavaClassFile;
-import ru.alex55i.jclassmodifier.modifier.ClassModifier;
-import ru.alex55i.jclassmodifier.modifier.JavassistModifier;
-import ru.alex55i.jclassmodifier.util.UrlClassPath;
+import ru.alex55i.jclassmodifier.mod.DecompiledFile;
+import ru.alex55i.jclassmodifier.tree.ClassFileTabNode;
+import ru.alex55i.jclassmodifier.tree.ClasspathNode;
+import ru.alex55i.jclassmodifier.tree.ZipEntryNode;
+import ru.alex55i.jclassmodifier.tree.ZipFileNode;
 
 import com.google.common.base.Charsets;
 import com.google.common.io.Files;
@@ -63,14 +61,14 @@ public class EditorPanel extends JPanel
 {
 	private static final long serialVersionUID = 1L;
 
-	private Decompiler defaultDecompiler;
+	private final Decompiler decompiler = new FernflowerDecompiler();
 	private JTabbedPane tabbedPane;
 	private JButton outDirectoryBox;
 	private JToolBar toolBar;
 	private File outDirectory;
 	private JTree classTree;
-	private List<ClassFileTab> tabs = new ArrayList<ClassFileTab>();
-	private List<File> classpath = new ArrayList<File>();
+	private final AtomicInteger decompileCounter = new AtomicInteger();
+	private JLabel decompileCounterLabel;
 
 	public EditorPanel()
 	{
@@ -79,79 +77,9 @@ public class EditorPanel extends JPanel
 		JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
 		classTree = new JTree(new DefaultMutableTreeNode());
 		classTree.setRootVisible(false);
-		classTree.setCellRenderer(new DefaultTreeCellRenderer()
-		{
-			private static final long serialVersionUID = 1L;
-
-			@Override
-			public Component getTreeCellRendererComponent(JTree tree, Object value, boolean sel, boolean expanded, boolean leaf, int row, boolean hasFocus)
-			{
-				String stringValue = value.toString();
-				Color fg = null;
-				if (value instanceof DefaultMutableTreeNode)
-				{
-					Object obj = ((DefaultMutableTreeNode) value).getUserObject();
-					if (obj instanceof File)
-					{
-						fg = Color.blue;
-						stringValue = ((File) obj).getName();
-					}
-
-				}
-
-				this.hasFocus = hasFocus;
-				setText(stringValue);
-
-				setForeground(fg);
-
-				Icon icon = null;
-				if (leaf)
-				{
-					icon = getLeafIcon();
-				} else if (expanded)
-				{
-					icon = getOpenIcon();
-				} else
-				{
-					icon = getClosedIcon();
-				}
-
-				if (!tree.isEnabled())
-				{
-					setEnabled(false);
-					LookAndFeel laf = UIManager.getLookAndFeel();
-					Icon disabledIcon = laf.getDisabledIcon(tree, icon);
-					if (disabledIcon != null)
-						icon = disabledIcon;
-					setDisabledIcon(icon);
-				} else
-				{
-					setEnabled(true);
-					setIcon(icon);
-				}
-				setComponentOrientation(tree.getComponentOrientation());
-
-				selected = sel;
-				return this;
-			}
-		});
-		classTree.addTreeSelectionListener(new TreeSelectionListener()
-		{
-			@Override
-			public void valueChanged(TreeSelectionEvent e)
-			{
-				DefaultMutableTreeNode node = (DefaultMutableTreeNode) classTree.getLastSelectedPathComponent();
-				if (node != null)
-				{
-					Object obj = node.getUserObject();
-					if (obj instanceof ClassFileTab)
-					{
-						ClassFileTab tab = (ClassFileTab) obj;
-						openCloseableTab(node.toString(), tab);
-					}
-				}
-			}
-		});
+		classTree.expandRow(0);
+		classTree.setCellRenderer(new ClassTreeCellRenderer());
+		classTree.addTreeSelectionListener(getTreeSelectionListener());
 		JPanel leftPane = new JPanel(new BorderLayout());
 		JScrollPane scroll = new JScrollPane(classTree);
 		leftPane.add(scroll);
@@ -162,10 +90,10 @@ public class EditorPanel extends JPanel
 		{
 			public void actionPerformed(ActionEvent e)
 			{
-				File file = MainFrame.getConfig().getFile("add-classpath");
-				if (file == null)
-					file = new File(".");
-				JFileChooser chooser = new JFileChooser(file);
+				File currentDir = MainFrame.getConfig().getFile("add-classpath");
+				if (currentDir == null)
+					currentDir = new File(".");
+				JFileChooser chooser = new JFileChooser(currentDir);
 				chooser.setPreferredSize(new Dimension(700, 600));
 				chooser.setMultiSelectionEnabled(true);
 				int res = chooser.showOpenDialog(null);
@@ -174,8 +102,8 @@ public class EditorPanel extends JPanel
 				{
 					final File[] files = chooser.getSelectedFiles();
 					for (File f : files)
-						classpath.add(f);
-					rebuildTree();
+						addClasspath(f);
+					reloadTreeModel();
 				}
 			}
 		});
@@ -193,24 +121,27 @@ public class EditorPanel extends JPanel
 				{
 					for (TreePath path : pathes)
 					{
-						DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
-						if (node != null)
+						Object obj = path.getLastPathComponent();
+						if (obj != null)
 						{
-							Object obj = node.getUserObject();
-							if (obj instanceof ClassFileTab)
+							if (obj instanceof ClassFileTabNode)
 							{
-								ClassFileTab tab = (ClassFileTab) obj;
-								tabs.remove(tab);
-								tabbedPane.remove(tab);
+								ClassFileTabNode node = (ClassFileTabNode) obj;
+								removeAndCloseClassFileTab(node);
 							}
-							else if (obj instanceof File)
+							else if (obj instanceof ClasspathNode)
 							{
-								File f = (File) obj;
-								classpath.remove(f);
+								ClasspathNode node = (ClasspathNode) obj;
+								removeClassPathNode(node);
 							}
+							else if (obj instanceof ZipFileNode)
+							{
+								ZipFileNode node = (ZipFileNode) obj;
+								removeZipNodeAndCloseTabs(node);
+							}
+							reloadTreeModel();
 						}
 					}
-					rebuildTree();
 				}
 			}
 		});
@@ -227,26 +158,337 @@ public class EditorPanel extends JPanel
 		toolBar = buildToolbar();
 		add(toolBar, "North");
 
-		defaultDecompiler = new FernflowerDecompiler();
+		add(buildStatusBar(), "South");
+
+		MainFrame.setHandler(new MessageHandler()
+		{
+			@Override
+			public String handle(String arg0)
+			{
+				openZipOrClassFileNodes(new File(arg0));
+				reloadTreeModel();
+				return null;
+			}
+		});
+		for (String s : MainFrame.getProgramArgs())
+		{
+			openZipOrClassFileNodes(new File(s));
+		}
+		reloadTreeModel();
 	}
 
-	protected void rebuildTree()
+	private Component buildStatusBar()
 	{
-		DefaultTreeModel model = (DefaultTreeModel) classTree.getModel();
-		DefaultMutableTreeNode root = (DefaultMutableTreeNode) model.getRoot();
-		root.removeAllChildren();
+		JPanel bar = new JPanel();
+		bar.setLayout(new BoxLayout(bar, BoxLayout.X_AXIS));
 
-		for (ClassFileTab tab : tabs)
+		bar.add(new JLabel("Decompiling: "));
+
+		decompileCounterLabel = new JLabel();
+		bar.add(decompileCounterLabel);
+		updateDecompileCounterLabel();
+
+		return bar;
+	}
+
+	private void updateDecompileCounterLabel()
+	{
+		decompileCounterLabel.setText("" + decompileCounter.get());
+	}
+
+	private TreeSelectionListener getTreeSelectionListener()
+	{
+		return new TreeSelectionListener()
 		{
-			DefaultMutableTreeNode node = new DefaultMutableTreeNode(tab);
-			root.add(node);
-		}
-		for (File f : classpath)
+			@Override
+			public void valueChanged(TreeSelectionEvent e)
+			{
+				Object o = classTree.getLastSelectedPathComponent();
+				if (o != null)
+				{
+					if (o instanceof ClassFileTabNode)
+					{
+						final ClassFileTabNode node = (ClassFileTabNode) o;
+						final ClassContainer container = node.getContainer();
+						ClassFileTab tab = node.getTab();
+						if (tab == null)
+						{
+							new Thread()
+							{
+								public void run()
+								{
+									try
+									{
+										decompileCounter.incrementAndGet();
+										SwingUtilities.invokeLater(new Runnable()
+										{
+											@Override
+											public void run()
+											{
+												updateDecompileCounterLabel();
+											}
+										});
+										final DecompiledFile source = Helper.decompile(decompiler, getClasspath(), container);
+										decompileCounter.decrementAndGet();
+										SwingUtilities.invokeLater(new Runnable()
+										{
+											@Override
+											public void run()
+											{
+												ClassFileTab tab = new ClassFileTab(source);
+												node.setTab(tab);
+												classTree.repaint();
+												openCloseableTab(node.toString(), tab);
+											}
+										});
+									} catch (Exception e)
+									{
+										decompileCounter.decrementAndGet();
+										openErrorTab(e, "Decompile error");
+										e.printStackTrace();
+									}
+									SwingUtilities.invokeLater(new Runnable()
+									{
+										@Override
+										public void run()
+										{
+											updateDecompileCounterLabel();
+										}
+									});
+								};
+							}.start();
+						}
+						else
+						{
+							openCloseableTab(node.toString(), tab);
+						}
+					}
+					else if (o instanceof ZipEntryNode)
+					{
+						final ZipEntryNode node = (ZipEntryNode) o;
+						final ClassContainer container = node.getContainer();
+						ClassFileTab tab = node.getTab();
+						if (tab == null)
+						{
+							new Thread()
+							{
+								public void run()
+								{
+									try
+									{
+										decompileCounter.incrementAndGet();
+										SwingUtilities.invokeLater(new Runnable()
+										{
+											@Override
+											public void run()
+											{
+												updateDecompileCounterLabel();
+											}
+										});
+										final DecompiledFile source = Helper.decompile(decompiler, getClasspath(), container);
+										decompileCounter.decrementAndGet();
+										SwingUtilities.invokeLater(new Runnable()
+										{
+											@Override
+											public void run()
+											{
+												ClassFileTab tab = new ClassFileTab(source);
+												node.setTab(tab);
+												classTree.repaint();
+												openCloseableTab(node.toString(), tab);
+											}
+										});
+									} catch (Exception e)
+									{
+										decompileCounter.decrementAndGet();
+										openErrorTab(e, "Decompile error");
+										e.printStackTrace();
+									}
+									SwingUtilities.invokeLater(new Runnable()
+									{
+										@Override
+										public void run()
+										{
+											updateDecompileCounterLabel();
+										}
+									});
+								};
+							}.start();
+						}
+						else
+						{
+							openCloseableTab(node.toString(), tab);
+						}
+					}
+				}
+			}
+		};
+	}
+
+	protected void reloadTreeModel()
+	{
+		final DefaultTreeModel model = (DefaultTreeModel) classTree.getModel();
+		final DefaultMutableTreeNode root = (DefaultMutableTreeNode) model.getRoot();
+
+		Runnable r = new Runnable()
 		{
-			DefaultMutableTreeNode node = new DefaultMutableTreeNode(f);
-			root.add(node);
+			@Override
+			public void run()
+			{
+				TreePath nodesPath = new TreePath(root.getPath());
+				TreePath currentSel = classTree.getLeadSelectionPath();
+				Enumeration<TreePath> expandEnum = classTree.getExpandedDescendants(nodesPath);
+				model.reload(root);
+				if (expandEnum != null)
+				{
+					while (expandEnum.hasMoreElements())
+						classTree.expandPath(expandEnum.nextElement());
+				}
+				classTree.setSelectionPath(currentSel);
+			}
+		};
+		if (SwingUtilities.isEventDispatchThread())
+		{
+			r.run();
 		}
-		model.reload(root);
+		else
+		{
+			SwingUtilities.invokeLater(r);
+		}
+	}
+
+	protected void addClasspath(File f)
+	{
+		TreeModel model = classTree.getModel();
+		DefaultMutableTreeNode root = (DefaultMutableTreeNode) model.getRoot();
+		root.add(new ClasspathNode(f));
+	}
+
+	protected Collection<File> getClasspath()
+	{
+		ArrayList<File> list = new ArrayList<File>();
+		TreeModel model = classTree.getModel();
+		DefaultMutableTreeNode root = (DefaultMutableTreeNode) model.getRoot();
+		Enumeration<?> children = root.children();
+		while (children.hasMoreElements())
+		{
+			Object o = children.nextElement();
+			if (o instanceof ClasspathNode)
+			{
+				list.add(((ClasspathNode) o).getFile());
+			}
+		}
+		return list;
+	}
+
+	protected Collection<ClassFileTab> getChangedTabs()
+	{
+		TreeModel model = classTree.getModel();
+		DefaultMutableTreeNode root = (DefaultMutableTreeNode) model.getRoot();
+		return getChangedTabs(root);
+	}
+
+	protected Collection<ClassFileTab> getChangedTabs(DefaultMutableTreeNode root)
+	{
+		ArrayList<ClassFileTab> list = new ArrayList<ClassFileTab>();
+		Enumeration<?> children = root.children();
+		while (children.hasMoreElements())
+		{
+			Object o = children.nextElement();
+			if (o instanceof ClassFileTabNode)
+			{
+				ClassFileTabNode node = (ClassFileTabNode) o;
+				ClassFileTab tab = node.getTab();
+				if (tab != null && tab.isChanged())
+				{
+					list.add(tab);
+				}
+			}
+			else if (o instanceof ZipEntryNode)
+			{
+				ZipEntryNode node = (ZipEntryNode) o;
+				ClassFileTab tab = node.getTab();
+				if (tab != null && tab.isChanged())
+				{
+					list.add(tab);
+				}
+			}
+			else if (o instanceof DefaultMutableTreeNode)
+			{
+				list.addAll(getChangedTabs((DefaultMutableTreeNode) o));
+			}
+		}
+		return list;
+	}
+
+	protected void addClassFile(File classFile)
+	{
+		TreeModel model = classTree.getModel();
+		DefaultMutableTreeNode root = (DefaultMutableTreeNode) model.getRoot();
+		root.add(new ClassFileTabNode(new FileClassContainer(classFile), null));
+	}
+
+	protected void addZipFileNode(File file) throws ZipException, IOException
+	{
+		TreeModel model = classTree.getModel();
+		DefaultMutableTreeNode root = (DefaultMutableTreeNode) model.getRoot();
+		root.add(new ZipFileNode(file));
+	}
+
+	protected void removeAndCloseClassFileTab(ClassFileTabNode node)
+	{
+		TreeModel model = classTree.getModel();
+		DefaultMutableTreeNode root = (DefaultMutableTreeNode) model.getRoot();
+		root.remove(node);
+
+		Component tab = node.getTab();
+		if (tab != null)
+			tabbedPane.remove(tab);
+	}
+
+	protected void removeClassPathNode(ClasspathNode node)
+	{
+		TreeModel model = classTree.getModel();
+		DefaultMutableTreeNode root = (DefaultMutableTreeNode) model.getRoot();
+		root.remove(node);
+	}
+
+	protected void removeZipNodeAndCloseTabs(ZipFileNode node)
+	{
+		TreeModel model = classTree.getModel();
+		DefaultMutableTreeNode root = (DefaultMutableTreeNode) model.getRoot();
+		root.remove(node);
+		Enumeration<?> children = node.children();
+		while (children.hasMoreElements())
+		{
+			Object o = children.nextElement();
+			if (o instanceof ZipEntryNode)
+			{
+				ClassFileTab tab = ((ZipEntryNode) o).getTab();
+				if (tab != null)
+					tabbedPane.remove(tab);
+			}
+		}
+	}
+
+	protected void openZipOrClassFileNodes(File file)
+	{
+		String filename = file.getName();
+		if (filename.endsWith(".zip") || filename.endsWith(".jar"))
+		{
+			try
+			{
+				addZipFileNode(file);
+			} catch (Exception e)
+			{
+				e.printStackTrace();
+				openErrorTab(e, "Error opening file");
+			}
+		}
+		else if (filename.endsWith(".class"))
+		{
+			addClassFile(file);
+		}
 	}
 
 	private JToolBar buildToolbar()
@@ -257,10 +499,10 @@ public class EditorPanel extends JPanel
 		{
 			public void actionPerformed(ActionEvent e)
 			{
-				File file = MainFrame.getConfig().getFile("open-classfile");
-				if (file == null)
-					file = new File(".");
-				JFileChooser chooser = new JFileChooser(file);
+				File currentDir = MainFrame.getConfig().getFile("open-classfile");
+				if (currentDir == null)
+					currentDir = new File(".");
+				JFileChooser chooser = new JFileChooser(currentDir);
 				chooser.setPreferredSize(new Dimension(700, 600));
 				chooser.setMultiSelectionEnabled(true);
 				int res = chooser.showOpenDialog(null);
@@ -273,16 +515,9 @@ public class EditorPanel extends JPanel
 						@Override
 						public void run()
 						{
-							decompile(files);
-							SwingUtilities.invokeLater(new Runnable()
-							{
-
-								@Override
-								public void run()
-								{
-									rebuildTree();
-								}
-							});
+							for (File file : files)
+								openZipOrClassFileNodes(file);
+							reloadTreeModel();
 						}
 					}.start();
 				}
@@ -298,17 +533,24 @@ public class EditorPanel extends JPanel
 				Component comp = tabbedPane.getSelectedComponent();
 				if (comp != null && comp instanceof ClassFileTab)
 				{
-					File file = MainFrame.getConfig().getFile("save-source");
-					if (file == null)
-						file = new File(".");
-					JFileChooser chooser = new JFileChooser(file);
+					File currentDir = MainFrame.getConfig().getFile("save-source");
+					if (currentDir == null)
+						currentDir = new File(".");
+					JFileChooser chooser = new JFileChooser(currentDir);
 					chooser.setPreferredSize(new Dimension(700, 600));
 					int res = chooser.showSaveDialog(null);
 					MainFrame.getConfig().setFile("save-source", chooser.getCurrentDirectory());
 					if (res == JFileChooser.APPROVE_OPTION)
 					{
 						File f = chooser.getSelectedFile();
-						saveSelectedToFile(f, (ClassFileTab) comp);
+						ClassFileTab tab = (ClassFileTab) comp;
+						try
+						{
+							Files.write(tab.getText(), f, Charsets.UTF_8);
+						} catch (IOException ex)
+						{
+							ex.printStackTrace();
+						}
 					}
 				}
 			}
@@ -338,7 +580,7 @@ public class EditorPanel extends JPanel
 		});
 		bar.add(outDirectoryBox);
 
-		el = new JButton("Compile All");
+		el = new JButton("Compile Changed");
 		el.addActionListener(new ActionListener()
 		{
 			@Override
@@ -351,16 +593,17 @@ public class EditorPanel extends JPanel
 					{
 						try
 						{
-							JavaClassFile[] classFiles = new JavaClassFile[tabs.size()];
-							int i = 0;
+							Collection<ClassFileTab> tabs = getChangedTabs();
 							for (ClassFileTab tab : tabs)
 							{
-								classFiles[i++] = tab.getClassFile();
+								DecompiledFile cf = tab.constructClassFile();
+								Helper.compileAndUpdate(getClasspath(), cf);
+								tab.setUnchanged();
 							}
-							compile(classFiles);
-						} catch (ParseException e)
+						} catch (Exception e)
 						{
 							e.printStackTrace();
+							openErrorTab(e, "Compile error");
 						}
 					}
 				};
@@ -368,101 +611,20 @@ public class EditorPanel extends JPanel
 			}
 		});
 		bar.add(el);
+
+		bar.addSeparator();
+
+		el = new JButton("Close All Tabs");
+		el.addActionListener(new ActionListener()
+		{
+			@Override
+			public void actionPerformed(ActionEvent e)
+			{
+				tabbedPane.removeAll();
+			}
+		});
+		bar.add(el);
 		return bar;
-	}
-
-	public void decompile(final File[] classFiles)
-	{
-		try
-		{
-			System.out.println("Decompiling..");
-			CompilationUnit[] units = defaultDecompiler.decompileClassFiles(classpath.toArray(new File[classpath.size()]), classFiles);
-			System.out.println("Decompiled!");
-			if (units.length > 0)
-			{
-				System.out.println("Opening " + units.length + " tabs");
-				for (final CompilationUnit unit : units)
-				{
-					final JavaClassFile srcClass = new JavaClassFile(unit);
-					srcClass.recomputeChecksum();
-					SwingUtilities.invokeAndWait(new Runnable()
-					{
-						public void run()
-						{
-							ClassFileTab tab = new ClassFileTab(srcClass);
-							tabs.add(tab);
-						}
-					});
-				}
-			}
-			else
-			{
-				System.err.println("No class files found!");
-			}
-		} catch (Exception e)
-		{
-			e.printStackTrace();
-			openErrorTab(e, "Decompile error");
-		}
-	}
-
-	public void compile(final JavaClassFile[] classFiles)
-	{
-		if (outDirectory == null)
-		{
-			JOptionPane.showMessageDialog(null, "Choose output dir first.");
-			return;
-		}
-		try
-		{
-			ClassPool pool = new ClassPool(true);
-			for (File cf : classpath)
-			{
-				pool.appendClassPath(new UrlClassPath(cf.toURI().toURL()));
-			}
-			System.out.println("Compiling");
-			CompilationUnit[] units = new CompilationUnit[classFiles.length];
-			for (int i = 0; i < classFiles.length; i++)
-			{
-				units[i] = classFiles[i].getUnit();
-			}
-			ClassModifier modifer = new JavassistModifier(pool, units);
-			CtClass[] outClasses = modifer.modify();
-			System.out.println("Changed classes:");
-			for (CtClass c : outClasses)
-			{
-				// Save changed classes
-				String path = c.getName().replace('.', '/') + ".class";
-				File file = new File(outDirectory, path);
-				file.getParentFile().mkdirs();
-				DataOutputStream os = new DataOutputStream(new FileOutputStream(file));
-				try
-				{
-					c.toBytecode(os);
-				} finally
-				{
-					os.flush();
-					os.close();
-				}
-
-				System.out.println(c.getName());
-			}
-		} catch (Exception e)
-		{
-			e.printStackTrace();
-			openErrorTab(e, "Error compiling");
-		}
-	}
-
-	public void saveSelectedToFile(File file, ClassFileTab tab)
-	{
-		try
-		{
-			Files.write(tab.getText(), file, Charsets.UTF_8);
-		} catch (IOException e)
-		{
-			e.printStackTrace();
-		}
 	}
 
 	public void setOutputDir(File dir)

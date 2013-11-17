@@ -49,10 +49,11 @@ import javassist.CtMethod;
 import javassist.Modifier;
 import javassist.NotFoundException;
 import javassist.bytecode.AnnotationDefaultAttribute;
+import javassist.bytecode.BadBytecode;
 import javassist.bytecode.ClassFile;
 import javassist.bytecode.ConstPool;
 import javassist.bytecode.MethodInfo;
-import ru.alex55i.jclassmodifier.mod.JavaClassFile;
+import ru.alex55i.jclassmodifier.mod.DecompiledFile;
 import ru.alex55i.jclassmodifier.mod.ModType;
 import ru.alex55i.jclassmodifier.mod.UnitModifier;
 
@@ -67,7 +68,7 @@ public class JavassistModifier extends ClassModifier
 	}
 
 	@Override
-	public CtClass[] modify() throws NotFoundException, CannotCompileException
+	public CtClass[] modify() throws NotFoundException, CannotCompileException, BadBytecode
 	{
 		List<ModType> list = Lists.newArrayList();
 		for (CompilationUnit unit : units)
@@ -103,12 +104,17 @@ public class JavassistModifier extends ClassModifier
 		{
 			modType.addMethodsBody();
 		}
+		for (ModType modType : list)
+		{
+			modType.rebuildStackMaps();
+		}
 
 		CtClass[] arr = new CtClass[list.size()];
 		int i = 0;
 		for (ModType modType : list)
 		{
-			arr[i++] = modType.getClazz();
+			CtClass clazz = modType.getClazz();
+			arr[i++] = clazz;
 		}
 		return arr;
 	}
@@ -158,7 +164,8 @@ public class JavassistModifier extends ClassModifier
 
 		ClassFile clazzFile = clazz.getClassFile();
 		ConstPool clazzConstPool = clazzFile.getConstPool();
-		clazzFile.addAttribute(unitMod.makeAnnotationAttribute(clazzConstPool, td));
+
+		unitMod.addAnnotationAttributes(clazz.getClassFile(), clazzConstPool, td);
 
 		if (td instanceof EnumDeclaration)
 		{
@@ -187,7 +194,7 @@ public class JavassistModifier extends ClassModifier
 				Initializer init = Initializer.byExpr("new " + classname + "(" + Joiner.on(',').join(stringParams) + ");");
 				CtField fd = modType.newField(clazz, ecd.getName(), init);
 				fd.setModifiers(PUBLIC | STATIC | FINAL | ENUM);
-				fd.getFieldInfo().addAttribute(unitMod.makeAnnotationAttribute(clazzConstPool, ecd));
+				unitMod.addAnnotationAttributes(fd.getFieldInfo(), clazzConstPool, ecd);
 				j++;
 			}
 			Initializer init = Initializer.byExpr("new " + clazzArray + " {" + Joiner.on(',').join(enumFields) + "};");
@@ -269,7 +276,7 @@ public class JavassistModifier extends ClassModifier
 						String fname = vard.getId().getName();
 						CtField newFld = modType.newField(type, fname, iinit);
 						newFld.setModifiers(fd.getModifiers());
-						newFld.getFieldInfo().addAttribute(unitMod.makeAnnotationAttribute(clazzConstPool, d));
+						unitMod.addAnnotationAttributes(newFld.getFieldInfo(), clazzConstPool, d);
 					}
 				}
 				else if ((d instanceof ConstructorDeclaration) || (d instanceof MethodDeclaration))
@@ -307,7 +314,7 @@ public class JavassistModifier extends ClassModifier
 							try
 							{
 								origClazz.getDeclaredMethod(mdName, paramz);
-								if (md.getComment() != null && md.getComment().getContent().trim().equals(JavaClassFile.hash(md)))
+								if (md.getComment() != null && md.getComment().getContent().trim().equals(DecompiledFile.hash(md)))
 								{
 									needRecompile = false;
 								}
@@ -373,9 +380,7 @@ public class JavassistModifier extends ClassModifier
 							CtConstructor newConstr = modType.newConstructor(paramz, bodyBlock.toString());
 							newConstr.setExceptionTypes(throwz);
 							newConstr.setModifiers(mdModifers);
-							MethodInfo mi = newConstr.getMethodInfo();
-							mi.addAttribute(unitMod.makeParameterAnnotations(clazzConstPool, d));
-							mi.addAttribute(unitMod.makeAnnotationAttribute(clazzConstPool, d));
+							unitMod.addAnnotationAttributes(newConstr.getMethodInfo(), clazzConstPool, d);
 						}
 						else
 						{
@@ -395,10 +400,8 @@ public class JavassistModifier extends ClassModifier
 							else
 								newMtd.setModifiers(mdModifers);
 
-							MethodInfo mi = newMtd.getMethodInfo();
 							//TODO: Add LocalVariableAttribute
-							mi.addAttribute(unitMod.makeParameterAnnotations(clazzConstPool, d));
-							mi.addAttribute(unitMod.makeAnnotationAttribute(clazzConstPool, d));
+							unitMod.addAnnotationAttributes(newMtd.getMethodInfo(), clazzConstPool, d);
 						}
 					}
 					else
@@ -409,17 +412,14 @@ public class JavassistModifier extends ClassModifier
 							CtConstructor newConstr = modType.copyConstructor(origConstr);
 							newConstr.setModifiers(mdModifers);
 							MethodInfo mi = newConstr.getMethodInfo();
-							mi.addAttribute(unitMod.makeParameterAnnotations(clazzConstPool, d));
-							mi.addAttribute(unitMod.makeAnnotationAttribute(clazzConstPool, d));
+							unitMod.addAnnotationAttributes(mi, clazzConstPool, d);
 						}
 						else
 						{
 							CtMethod origMtd = origClazz.getDeclaredMethod(mdName, paramz);
 							CtMethod newMtd = modType.copyMethod(origMtd);
 							newMtd.setModifiers(mdModifers);
-							MethodInfo mi = newMtd.getMethodInfo();
-							mi.addAttribute(unitMod.makeParameterAnnotations(clazzConstPool, d));
-							mi.addAttribute(unitMod.makeAnnotationAttribute(clazzConstPool, d));
+							unitMod.addAnnotationAttributes(newMtd.getMethodInfo(), clazzConstPool, d);
 						}
 					}
 				}

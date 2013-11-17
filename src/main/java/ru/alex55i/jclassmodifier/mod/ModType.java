@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import javassist.CannotCompileException;
+import javassist.ClassMap;
 import javassist.CtClass;
 import javassist.CtConstructor;
 import javassist.CtField;
@@ -13,6 +14,10 @@ import javassist.CtNewConstructor;
 import javassist.CtNewMethod;
 import javassist.Modifier;
 import javassist.NotFoundException;
+import javassist.bytecode.AttributeInfo;
+import javassist.bytecode.BadBytecode;
+import javassist.bytecode.MethodInfo;
+import javassist.bytecode.StackMapTable;
 
 public class ModType
 {
@@ -70,7 +75,31 @@ public class ModType
 		for (ModConstructor c : constructors)
 		{
 			if (c.body != null)
+			{
 				c.constructor.setBody(c.body);
+			}
+		}
+	}
+
+	public void rebuildStackMaps() throws BadBytecode
+	{
+		for (ModMethod m : methods)
+		{
+			MethodInfo info = m.method.getMethodInfo();
+			if (info.getCodeAttribute() != null)
+			{
+				info.getCodeAttribute().setAttribute((StackMapTable)null);
+			}
+			//info.rebuildStackMap(clazz.getClassPool());
+		}
+		for (ModConstructor c : constructors)
+		{
+			MethodInfo info = c.constructor.getMethodInfo();
+			if (info.getCodeAttribute() != null)
+			{
+				info.getCodeAttribute().setAttribute((StackMapTable)null);
+			}
+			//info.rebuildStackMap(clazz.getClassPool());
 		}
 	}
 

@@ -4,9 +4,7 @@ import japa.parser.ast.CompilationUnit;
 
 import java.io.File;
 
-public abstract class Decompiler
+public interface Decompiler
 {
-
-	public abstract CompilationUnit[] decompileClassFiles(File[] files, File[] classFiles) throws Exception;
-
+	public CompilationUnit[] decompileClassFiles(File[] files, File[] classFiles) throws Exception;
 }

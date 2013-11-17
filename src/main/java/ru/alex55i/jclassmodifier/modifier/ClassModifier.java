@@ -5,6 +5,7 @@ import javassist.CannotCompileException;
 import javassist.ClassPool;
 import javassist.CtClass;
 import javassist.NotFoundException;
+import javassist.bytecode.BadBytecode;
 
 public abstract class ClassModifier
 {
@@ -17,6 +18,6 @@ public abstract class ClassModifier
 		this.units = units;
 	}
 
-	public abstract CtClass[] modify() throws NotFoundException, CannotCompileException;
+	public abstract CtClass[] modify() throws NotFoundException, CannotCompileException, BadBytecode;
 
 }

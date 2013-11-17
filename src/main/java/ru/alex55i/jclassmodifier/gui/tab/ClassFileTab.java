@@ -10,17 +10,16 @@ import javax.swing.JEditorPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 
-import ru.alex55i.jclassmodifier.mod.JavaClassFile;
-
+import ru.alex55i.jclassmodifier.mod.DecompiledFile;
 
 public class ClassFileTab extends JPanel
 {
 	private static final long serialVersionUID = 1L;
 
 	private JEditorPane editArea;
-	private JavaClassFile source;
+	private DecompiledFile source;
 
-	public ClassFileTab(JavaClassFile source)
+	public ClassFileTab(DecompiledFile source)
 	{
 		this.source = source;
 		setLayout(new BorderLayout());
@@ -29,17 +28,28 @@ public class ClassFileTab extends JPanel
 		JScrollPane scroll = new JScrollPane(editArea);
 		add(scroll);
 		editArea.setContentType("text/java");
-		editArea.setText(source.getUnit().toString());
+		String s = source.getUnit().toString();
+		editArea.setText(s);
 	}
 
-	public JavaClassFile getClassFile() throws ParseException
+	public DecompiledFile constructClassFile() throws ParseException
 	{
-		return new JavaClassFile(JavaParser.parse(new StringReader(getText())));
+		return new DecompiledFile(JavaParser.parse(new StringReader(getText())), source.getContainer());
 	}
 
 	public String getText()
 	{
 		return editArea.getText();
+	}
+
+	public void setUnchanged() throws ParseException
+	{
+		source = constructClassFile();
+	}
+
+	public boolean isChanged()
+	{
+		return !getText().equals(source.getUnit().toString());
 	}
 
 	@Override
